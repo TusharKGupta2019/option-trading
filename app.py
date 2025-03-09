@@ -11,13 +11,15 @@ from datetime import datetime, timedelta
 st.title('Indian Stock Market Intraday Options Trading App')
 
 # Function to fetch intraday options data
-def fetch_intraday_options_data(ticker, option_type='call', expiration='2025-03-15'):
+def fetch_intraday_options_data(ticker, option_type='call', expiration='2025-03-15', strike_price=None):
     stock = yf.Ticker(ticker)
     options = stock.option_chain(expiration)
     if option_type == 'call':
         data = options.calls
     else:
         data = options.puts
+    if strike_price:
+        data = data[data['strike'] == strike_price]
     data['ticker'] = ticker
     data['option_type'] = option_type
     data['expiration'] = expiration
@@ -231,11 +233,28 @@ def plot_intraday_strategy_returns(data):
     ax.legend()
     st.pyplot(fig)
 
+# Function to screen stocks based on criteria
+def screen_stocks(tickers, criteria):
+    screened_stocks = []
+    for ticker in tickers:
+        try:
+            data = fetch_intraday_options_data(ticker, strike_price=criteria['strike_price'])
+            if not data.empty:
+                data = calculate_moving_averages(data)
+                last_data = data.iloc[-1]
+                if (last_data['volume'] > criteria['min_volume'] and
+                    last_data['Short_MA'] > last_data['Long_MA']):
+                    screened_stocks.append(ticker)
+        except Exception as e:
+            print(f"Error processing {ticker}: {e}")
+    return screened_stocks
+
 # Main function to run the app
 def main():
     ticker = st.text_input('Enter Stock Ticker (e.g., TCS.NS for Tata Consultancy Services)', 'TCS.NS')
     option_type = st.selectbox('Select Option Type', ['call', 'put'])
     expiration = st.text_input('Enter Expiration Date (YYYY-MM-DD)', '2025-03-15')
+    strike_price = st.number_input('Enter Strike Price', value=100.0, step=0.1)
     st.sidebar.header("Strategy Parameters")
     short_ma = st.sidebar.slider("Short MA Period", min_value=5, max_value=50, value=15)
     long_ma = st.sidebar.slider("Long MA Period", min_value=20, max_value=200, value=60)
@@ -246,13 +265,14 @@ def main():
     min_volume = st.sidebar.slider("Minimum Volume", min_value=10000, max_value=10000000, value=1000000, step=10000)
     tickers = ['TCS.NS', 'INFY.NS', 'RELIANCE.NS', 'HDFCBANK.NS', 'ICICIBANK.NS']
     criteria = {
-        'min_volume': min_volume
+        'min_volume': min_volume,
+        'strike_price': strike_price
     }
     screened_stocks = screen_stocks(tickers, criteria)
     st.subheader("Screened Stocks")
     st.write("Stocks meeting the criteria:")
     st.write(screened_stocks)
-    data = fetch_intraday_options_data(ticker, option_type, expiration)
+    data = fetch_intraday_options_data(ticker, option_type, expiration, strike_price)
     data = calculate_moving_averages(data, short_window=short_ma, long_window=long_ma)
     data = moving_average_crossover_strategy(data)
     data = calculate_returns(data)
