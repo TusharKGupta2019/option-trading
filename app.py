@@ -12,27 +12,56 @@ st.title('Indian Stock Market Intraday Options Trading App')
 
 # Function to fetch intraday options data
 def fetch_intraday_options_data(ticker, option_type='call', expiration='2025-03-15', strike_price=None):
-    stock = yf.Ticker(ticker)
-    options = stock.option_chain(expiration)
-    if option_type == 'call':
-        data = options.calls
-    else:
-        data = options.puts
-    if strike_price:
-        data = data[data['strike'] == strike_price]
-    data['ticker'] = ticker
-    data['option_type'] = option_type
-    data['expiration'] = expiration
-    return data
+    try:
+        stock = yf.Ticker(ticker)
+        # First check if options exist for this ticker
+        available_expirations = stock.options
+        if not available_expirations:
+            st.error(f"No options available for {ticker}")
+            return pd.DataFrame()  # Return empty DataFrame
+            
+        # If requested expiration isn't available, use the nearest one
+        if expiration not in available_expirations:
+            st.warning(f"Expiration {expiration} not available. Available dates: {available_expirations}")
+            if available_expirations:
+                expiration = available_expirations[0]  # Use the first available expiration
+                st.info(f"Using {expiration} instead")
+            else:
+                return pd.DataFrame()
+                
+        options = stock.option_chain(expiration)
+        if option_type == 'call':
+            data = options.calls
+        else:
+            data = options.puts
+        if strike_price and not data.empty:
+            # Check if the exact strike price exists, if not use the nearest one
+            if strike_price not in data['strike'].values:
+                nearest_strike = data['strike'].iloc[(data['strike'] - strike_price).abs().argsort()[0]]
+                st.warning(f"Strike price {strike_price} not available. Using nearest strike: {nearest_strike}")
+                data = data[data['strike'] == nearest_strike]
+            else:
+                data = data[data['strike'] == strike_price]
+        data['ticker'] = ticker
+        data['option_type'] = option_type
+        data['expiration'] = expiration
+        return data
+    except Exception as e:
+        st.error(f"Error fetching options data: {str(e)}")
+        return pd.DataFrame()  # Return empty DataFrame
 
 # Function to calculate moving averages for intraday options
 def calculate_moving_averages(data, short_window=15, long_window=60):
+    if data.empty:
+        return data
     data['Short_MA'] = data['close'].rolling(window=short_window).mean()
     data['Long_MA'] = data['close'].rolling(window=long_window).mean()
     return data
 
 # Function to implement moving average crossover strategy for intraday options
 def moving_average_crossover_strategy(data):
+    if data.empty:
+        return data
     data['Signal'] = 0
     data['Signal'][data['Short_MA'] > data['Long_MA']] = 1
     data['Signal'][data['Short_MA'] < data['Long_MA']] = -1
@@ -48,18 +77,24 @@ def moving_average_crossover_strategy(data):
 
 # Function to calculate returns for options
 def calculate_returns(data):
+    if data.empty:
+        return data
     data['Return'] = np.log(data['close'] / data['close'].shift(1))
     data['Strategy_Return'] = data['Return'] * data['Signal'].shift(1)
     return data
 
 # Function to implement stop-loss and take-profit for options
 def implement_stop_loss_take_profit(data, stop_loss_price, take_profit_price):
+    if data.empty:
+        return data
     data['Stop_Loss'] = stop_loss_price
     data['Take_Profit'] = take_profit_price
     return data
 
 # Function to calculate additional technical indicators for risk assessment
 def calculate_additional_indicators(data):
+    if data.empty:
+        return data
     data['High-Low'] = data['high'] - data['low']
     data['High-Close'] = np.abs(data['high'] - data['close'].shift())
     data['Low-Close'] = np.abs(data['low'] - data['close'].shift())
@@ -84,6 +119,8 @@ def calculate_additional_indicators(data):
 
 # Function to assess market conditions for options
 def assess_market_conditions(data):
+    if data.empty:
+        return {}, 0
     latest = data.iloc[-1]
     atr_percent = latest['ATR_Percent']
     volatility = "Low" if atr_percent < 1 else "Medium" if atr_percent < 2 else "High"
@@ -111,6 +148,9 @@ def assess_market_conditions(data):
 
 # Function to create pre-trade checklist for options
 def create_pre_trade_checklist(data, ticker):
+    if data.empty:
+        st.warning("No data available to create pre-trade checklist")
+        return
     market_conditions, trade_quality = assess_market_conditions(data)
     latest = data.iloc[-1]
     current_signal = latest['Signal']
@@ -163,6 +203,9 @@ def create_pre_trade_checklist(data, ticker):
 
 # Function to create Signal Dashboard for options
 def create_signal_dashboard(data, ticker, stop_loss_price, take_profit_price):
+    if data.empty:
+        st.warning("No data available to create signal dashboard")
+        return
     latest_data = data.iloc[-1]
     current_price = latest_data['close']
     current_signal = latest_data['Signal']
@@ -198,6 +241,9 @@ def create_signal_dashboard(data, ticker, stop_loss_price, take_profit_price):
 
 # Function to plot intraday options data with signal indicators
 def plot_intraday_data(data, ticker):
+    if data.empty:
+        st.warning("No data available to plot")
+        return
     fig, ax = plt.subplots(figsize=(12, 6))
     ax.plot(data.index, data['close'], label='Close Price')
     ax.plot(data.index, data['Short_MA'], label='Short MA')
@@ -217,14 +263,23 @@ def plot_intraday_data(data, ticker):
     ax.set_ylabel('Price')
     ax.legend()
     ax.grid(True, alpha=0.3)
-    current_day = data.index[-1].date()
-    day_start = data[data.index.date == current_day].index[0]
-    day_rect = patches.Rectangle((day_start, ax.get_ylim()[0]), data.index[-1] - day_start, ax.get_ylim()[1] - ax.get_ylim()[0], facecolor='yellow', alpha=0.1)
-    ax.add_patch(day_rect)
+    if data.index.size > 0:  # Check if there is data with valid index
+        try:
+            current_day = data.index[-1].date()
+            day_data = data[data.index.date == current_day]
+            if not day_data.empty:
+                day_start = day_data.index[0]
+                day_rect = patches.Rectangle((day_start, ax.get_ylim()[0]), data.index[-1] - day_start, ax.get_ylim()[1] - ax.get_ylim()[0], facecolor='yellow', alpha=0.1)
+                ax.add_patch(day_rect)
+        except (AttributeError, TypeError) as e:
+            st.warning(f"Could not highlight current day: {str(e)}")
     st.pyplot(fig)
 
 # Function to plot intraday strategy returns for options
 def plot_intraday_strategy_returns(data):
+    if data.empty:
+        st.warning("No data available to plot strategy returns")
+        return
     fig, ax = plt.subplots(figsize=(12, 6))
     ax.plot(data.index, data['Strategy_Return'].cumsum(), label='Strategy Returns')
     ax.set_title('Cumulative Intraday Strategy Returns')
@@ -246,59 +301,110 @@ def screen_stocks(tickers, criteria):
                     last_data['Short_MA'] > last_data['Long_MA']):
                     screened_stocks.append(ticker)
         except Exception as e:
-            print(f"Error processing {ticker}: {e}")
+            st.error(f"Error processing {ticker}: {e}")
     return screened_stocks
 
 # Main function to run the app
 def main():
+    # Add debug mode in sidebar
+    debug_mode = st.sidebar.checkbox("Debug Mode", value=False)
+    
     ticker = st.text_input('Enter Stock Ticker (e.g., TCS.NS for Tata Consultancy Services)', 'TCS.NS')
     option_type = st.selectbox('Select Option Type', ['call', 'put'])
+    
+    # In debug mode, show available expirations
+    if debug_mode and ticker:
+        with st.expander("Debug Information"):
+            try:
+                stock = yf.Ticker(ticker)
+                available_expirations = stock.options
+                st.write("Available option expirations for", ticker, ":", available_expirations)
+                
+                # Show info about the stock
+                info = stock.info
+                if info:
+                    st.write("Stock Information:")
+                    st.json(info)
+            except Exception as e:
+                st.error(f"Error fetching debug info: {str(e)}")
+    
     expiration = st.text_input('Enter Expiration Date (YYYY-MM-DD)', '2025-03-15')
     strike_price = st.number_input('Enter Strike Price', value=100.0, step=0.1)
+    
     st.sidebar.header("Strategy Parameters")
     short_ma = st.sidebar.slider("Short MA Period", min_value=5, max_value=50, value=15)
     long_ma = st.sidebar.slider("Long MA Period", min_value=20, max_value=200, value=60)
+    
     st.sidebar.header("Risk Management")
     stop_loss_price = st.sidebar.number_input("Stop Loss Price", value=100.0, step=0.1)
     take_profit_price = st.sidebar.number_input("Take Profit Price", value=120.0, step=0.1)
+    
     st.sidebar.header("Screening Criteria")
     min_volume = st.sidebar.slider("Minimum Volume", min_value=10000, max_value=10000000, value=1000000, step=10000)
+    
     tickers = ['TCS.NS', 'INFY.NS', 'RELIANCE.NS', 'HDFCBANK.NS', 'ICICIBANK.NS']
     criteria = {
         'min_volume': min_volume,
         'strike_price': strike_price
     }
-    screened_stocks = screen_stocks(tickers, criteria)
-    st.subheader("Screened Stocks")
-    st.write("Stocks meeting the criteria:")
-    st.write(screened_stocks)
-    data = fetch_intraday_options_data(ticker, option_type, expiration, strike_price)
-    data = calculate_moving_averages(data, short_window=short_ma, long_window=long_ma)
-    data = moving_average_crossover_strategy(data)
-    data = calculate_returns(data)
-    data = implement_stop_loss_take_profit(data, stop_loss_price, take_profit_price)
-    data = calculate_additional_indicators(data)
-    create_signal_dashboard(data, ticker, stop_loss_price, take_profit_price)
-    create_pre_trade_checklist(data, ticker)
-    plot_intraday_data(data, ticker)
-    st.subheader("Recent Trading Signals")
-    signal_changes = data[data['Position_Change'] != 0].tail(10)
-    if not signal_changes.empty:
-        signal_table = pd.DataFrame({
-            'Time': signal_changes.index.strftime('%Y-%m-%d %H:%M'),
-            'Price': signal_changes['close'].round(2),
-            'Signal': signal_changes['Signal'].map({1: 'BUY', -1: 'SELL', 0: 'HOLD'}),
-            'Profit Target': signal_changes['Take_Profit'].round(2),
-            'Stop Loss': signal_changes['Stop_Loss'].round(2)
-        })
-        st.table(signal_table)
-    else:
-        st.write("No recent signal changes")
-    st.subheader("Recent Price Activity")
-    display_cols = ['open', 'high', 'low', 'close', 'volume', 'Short_MA', 'Long_MA']
-    st.write(data[display_cols].tail().round(2))
-    st.subheader("Strategy Performance")
-    plot_intraday_strategy_returns(data)
+    
+    # Add a button to execute the analysis
+    run_analysis = st.button("Run Analysis")
+    
+    if run_analysis:
+        with st.spinner("Fetching data and running analysis..."):
+            # Screen stocks
+            st.subheader("Screened Stocks")
+            screened_stocks = screen_stocks(tickers, criteria)
+            if screened_stocks:
+                st.write("Stocks meeting the criteria:")
+                st.write(screened_stocks)
+            else:
+                st.info("No stocks meet the specified criteria. Try adjusting your parameters.")
+            
+            # Fetch and process data
+            data = fetch_intraday_options_data(ticker, option_type, expiration, strike_price)
+            
+            if data.empty:
+                st.warning(f"Could not retrieve options data for {ticker} with expiration {expiration}. Please check the ticker symbol and expiration date.")
+            else:
+                # Apply all the analysis functions
+                try:
+                    data = calculate_moving_averages(data, short_window=short_ma, long_window=long_ma)
+                    data = moving_average_crossover_strategy(data)
+                    data = calculate_returns(data)
+                    data = implement_stop_loss_take_profit(data, stop_loss_price, take_profit_price)
+                    data = calculate_additional_indicators(data)
+                    
+                    # Show the analysis results
+                    create_signal_dashboard(data, ticker, stop_loss_price, take_profit_price)
+                    create_pre_trade_checklist(data, ticker)
+                    plot_intraday_data(data, ticker)
+                    
+                    st.subheader("Recent Trading Signals")
+                    signal_changes = data[data['Position_Change'] != 0].tail(10)
+                    if not signal_changes.empty:
+                        signal_table = pd.DataFrame({
+                            'Time': signal_changes.index.strftime('%Y-%m-%d %H:%M'),
+                            'Price': signal_changes['close'].round(2),
+                            'Signal': signal_changes['Signal'].map({1: 'BUY', -1: 'SELL', 0: 'HOLD'}),
+                            'Profit Target': signal_changes['Take_Profit'].round(2),
+                            'Stop Loss': signal_changes['Stop_Loss'].round(2)
+                        })
+                        st.table(signal_table)
+                    else:
+                        st.write("No recent signal changes")
+                    
+                    st.subheader("Recent Price Activity")
+                    display_cols = ['open', 'high', 'low', 'close', 'volume', 'Short_MA', 'Long_MA']
+                    st.write(data[display_cols].tail().round(2))
+                    
+                    st.subheader("Strategy Performance")
+                    plot_intraday_strategy_returns(data)
+                except Exception as e:
+                    st.error(f"Error during analysis: {str(e)}")
+                    if debug_mode:
+                        st.exception(e)
 
 if __name__ == '__main__':
     main()
