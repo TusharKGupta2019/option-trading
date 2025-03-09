@@ -51,9 +51,9 @@ def calculate_returns(data):
     return data
 
 # Function to implement stop-loss and take-profit for options
-def implement_stop_loss_take_profit(data, stop_loss_percentage=0.05, take_profit_percentage=0.05):
-    data['Stop_Loss'] = np.where(data['Signal'] == 1, data['close'] * (1 - stop_loss_percentage), data['close'] * (1 + stop_loss_percentage))
-    data['Take_Profit'] = np.where(data['Signal'] == 1, data['close'] * (1 + take_profit_percentage), data['close'] * (1 - take_profit_percentage))
+def implement_stop_loss_take_profit(data, stop_loss_price, take_profit_price):
+    data['Stop_Loss'] = stop_loss_price
+    data['Take_Profit'] = take_profit_price
     return data
 
 # Function to calculate additional technical indicators for risk assessment
@@ -160,7 +160,7 @@ def create_pre_trade_checklist(data, ticker):
         st.markdown("- No significant risk factors identified")
 
 # Function to create Signal Dashboard for options
-def create_signal_dashboard(data, ticker):
+def create_signal_dashboard(data, ticker, stop_loss_price, take_profit_price):
     latest_data = data.iloc[-1]
     current_price = latest_data['close']
     current_signal = latest_data['Signal']
@@ -184,13 +184,13 @@ def create_signal_dashboard(data, ticker):
     st.markdown("---")
     col4, col5 = st.columns(2)
     with col4:
-        st.markdown("<h3 style='text-align: center;'>5% Profit Target</h3>", unsafe_allow_html=True)
-        profit_target = latest_data['Take_Profit']
+        st.markdown("<h3 style='text-align: center;'>Profit Target</h3>", unsafe_allow_html=True)
+        profit_target = take_profit_price
         distance_to_target = ((profit_target / current_price) - 1) * 100
         st.markdown(f"<p style='text-align: center;'>₹{profit_target:.2f} ({distance_to_target:.2f}% away)</p>", unsafe_allow_html=True)
     with col5:
         st.markdown("<h3 style='text-align: center;'>Stop Loss Level</h3>", unsafe_allow_html=True)
-        stop_loss = latest_data['Stop_Loss']
+        stop_loss = stop_loss_price
         distance_to_stop = ((current_price / stop_loss) - 1) * 100
         st.markdown(f"<p style='text-align: center;'>₹{stop_loss:.2f} ({distance_to_stop:.2f}% away)</p>", unsafe_allow_html=True)
 
@@ -207,7 +207,7 @@ def plot_intraday_data(data, ticker):
     if len(buy_signals) > 0:
         last_buy = buy_signals.iloc[-1]
         ax.axhline(y=last_buy['Take_Profit'], color='green', linestyle='--', alpha=0.5)
-        ax.text(data.index[-1], last_buy['Take_Profit'], '5% Profit Target', verticalalignment='bottom', horizontalalignment='right', color='green')
+        ax.text(data.index[-1], last_buy['Take_Profit'], 'Profit Target', verticalalignment='bottom', horizontalalignment='right', color='green')
         ax.axhline(y=last_buy['Stop_Loss'], color='red', linestyle='--', alpha=0.5)
         ax.text(data.index[-1], last_buy['Stop_Loss'], 'Stop Loss', verticalalignment='top', horizontalalignment='right', color='red')
     ax.set_title(f'{ticker} Intraday Options Price and Trading Signals')
@@ -240,8 +240,8 @@ def main():
     short_ma = st.sidebar.slider("Short MA Period", min_value=5, max_value=50, value=15)
     long_ma = st.sidebar.slider("Long MA Period", min_value=20, max_value=200, value=60)
     st.sidebar.header("Risk Management")
-    take_profit = st.sidebar.slider("Take Profit (%)", min_value=1.0, max_value=10.0, value=5.0, step=0.1)
-    stop_loss = st.sidebar.slider("Stop Loss (%)", min_value=1.0, max_value=10.0, value=5.0, step=0.1)
+    stop_loss_price = st.sidebar.number_input("Stop Loss Price", value=100.0, step=0.1)
+    take_profit_price = st.sidebar.number_input("Take Profit Price", value=120.0, step=0.1)
     st.sidebar.header("Screening Criteria")
     min_volume = st.sidebar.slider("Minimum Volume", min_value=10000, max_value=10000000, value=1000000, step=10000)
     tickers = ['TCS.NS', 'INFY.NS', 'RELIANCE.NS', 'HDFCBANK.NS', 'ICICIBANK.NS']
@@ -256,9 +256,9 @@ def main():
     data = calculate_moving_averages(data, short_window=short_ma, long_window=long_ma)
     data = moving_average_crossover_strategy(data)
     data = calculate_returns(data)
-    data = implement_stop_loss_take_profit(data, stop_loss_percentage=stop_loss/100, take_profit_percentage=take_profit/100)
+    data = implement_stop_loss_take_profit(data, stop_loss_price, take_profit_price)
     data = calculate_additional_indicators(data)
-    create_signal_dashboard(data, ticker)
+    create_signal_dashboard(data, ticker, stop_loss_price, take_profit_price)
     create_pre_trade_checklist(data, ticker)
     plot_intraday_data(data, ticker)
     st.subheader("Recent Trading Signals")
