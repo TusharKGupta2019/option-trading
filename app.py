@@ -47,7 +47,7 @@ def fetch_intraday_options_data(ticker, option_type='call', expiration='2025-03-
         data['expiration'] = expiration
         return data
     except Exception as e:
-        st.error(f"Error fetching options data: {str(e)}")
+        st.error(f"Error fetching options data for {ticker}: {str(e)}")
         return pd.DataFrame()  # Return empty DataFrame
 
 # Function to calculate moving averages for intraday options
